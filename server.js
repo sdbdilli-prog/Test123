@@ -5,14 +5,11 @@ const { WebSocketServer, WebSocket } = require('ws');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Store connected clients cleanly by type/ID
-let targets = new Set();
-let controllers = new Set();
+let targetSocket = null;
+let controllerSocket = null;
 
+// Serve the Web-Based Controller Dashboard
 app.get('/', (req, res) => {
-    const isOnline = targets.size > 0;
-    const statusText = isOnline ? '🟢 ONLINE (' + targets.size + ' target/s)' : '🔴 oooOFFLINE';
-    
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -37,7 +34,7 @@ app.get('/', (req, res) => {
 <body>
     <div class="container">
         <h2>Remote File Manager</h2>
-        <div>Target Status: <span id="status" class="status ${isOnline ? 'online' : 'offline'}">${statusText}</span></div>
+        <div>Target Status: <span id="status" class="status offline">Connecting...</span></div>
         
         <div>
             <input type="text" id="pathInput" value="/sdcard/Download/" placeholder="Enter folder path">
@@ -112,61 +109,42 @@ app.get('/', (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-function broadcastStatus() {
-    const isOnline = targets.size > 0;
-    const msg = JSON.stringify({ status: 'TARGET_STATUS', online: isOnline });
-    controllers.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) client.send(msg);
-    });
+function broadcastTargetStatus() {
+    const isOnline = targetSocket && targetSocket.readyState === WebSocket.OPEN;
+    if (controllerSocket && controllerSocket.readyState === WebSocket.OPEN) {
+        controllerSocket.send(JSON.stringify({ status: 'TARGET_STATUS', online: isOnline }));
+    }
 }
 
 wss.on('connection', (ws) => {
-    let clientType = 'UNKNOWN';
-
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message.toString());
 
             if (data.type === 'REGISTER_TARGET') {
-                clientType = 'TARGET';
-                targets.add(ws);
-                console.log('Target Device registered. Total targets:', targets.size);
-                broadcastStatus();
-                ws.send(JSON.stringify({ status: 'SUCCESS', role: 'TARGET' }));
+                targetSocket = ws;
+                console.log('Target Device registered.');
+                broadcastTargetStatus();
                 return;
             }
 
             if (data.type === 'REGISTER_CONTROLLER') {
-                clientType = 'CONTROLLER';
-                controllers.add(ws);
-                console.log('Web Controller connected. Total controllers:', controllers.size);
-                // Immediately push current status to this specific controller
-                ws.send(JSON.stringify({ status: 'TARGET_STATUS', online: targets.size > 0 }));
+                controllerSocket = ws;
+                console.log('Web Controller connected.');
+                broadcastTargetStatus();
                 return;
             }
 
-            // Route Controller -> Target (send to the first available target)
-            if (clientType === 'CONTROLLER') {
-                if (targets.size > 0) {
-                    const targetArr = Array.from(targets);
-                    const activeTarget = targetArr[targetArr.length - 1]; // get latest connected target
-                    if (activeTarget.readyState === WebSocket.OPEN) {
-                        activeTarget.send(JSON.stringify(data));
-                    } else {
-                        ws.send(JSON.stringify({ action: 'FILE_LIST', files: ['ERROR: Target connection is dead.'] }));
-                    }
+            if (ws === controllerSocket) {
+                if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
+                    targetSocket.send(JSON.stringify(data));
                 } else {
                     ws.send(JSON.stringify({ action: 'FILE_LIST', files: ['ERROR: Target device is offline.'] }));
                 }
-            }
-
-            // Route Target -> All Controllers
-            else if (clientType === 'TARGET') {
-                controllers.forEach(ctrl => {
-                    if (ctrl.readyState === WebSocket.OPEN) {
-                        ctrl.send(JSON.stringify(data));
-                    }
-                });
+            } else if (ws === targetSocket) {
+                if (controllerSocket && controllerSocket.readyState === WebSocket.OPEN) {
+                    controllerSocket.send(JSON.stringify(data));
+                }
             }
         } catch (err) {
             console.error('Error handling message:', err.message);
@@ -174,13 +152,13 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', () => {
-        if (clientType === 'TARGET') {
-            targets.delete(ws);
-            console.log('Target Device disconnected. Remaining targets:', targets.size);
-            broadcastStatus();
-        } else if (clientType === 'CONTROLLER') {
-            controllers.delete(ws);
+        if (ws === targetSocket) {
+            console.log('Target Device disconnected.');
+            targetSocket = null;
+            broadcastTargetStatus();
+        } else if (ws === controllerSocket) {
             console.log('Web Controller disconnected.');
+            controllerSocket = null;
         }
     });
 });

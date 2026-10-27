@@ -11,7 +11,7 @@ let controllers = new Set();
 
 app.get('/', (req, res) => {
     const isOnline = targets.size > 0;
-    const statusText = isOnline ? '🟢 ONLINE (' + targets.size + ' target/s)' : '🔴 OFFLINE';
+    const statusText = isOnline ? '🟢 ONLINE (' + targets.size + ' target/s)' : '🔴 oooOFFLINE';
     
     const html = `<!DOCTYPE html>
 <html>

@@ -149,17 +149,31 @@ wss.on('connection', (ws) => {
             }
 
             // Route Controller -> Target
+                        // Route Controller -> Target (Universal Multi-Key Translator)
             if (clientType === 'CONTROLLER') {
                 if (targets.size > 0) {
                     const targetArr = Array.from(targets);
                     const activeTarget = targetArr[targetArr.length - 1];
                     if (activeTarget.readyState === WebSocket.OPEN) {
-                        activeTarget.send(JSON.stringify(data));
+                        console.log('Broadcasting command variants to Target:', data.action || data.type);
+                        
+                        let payload = {
+                            ...data,
+                            // Inject every common variation so your app catches it immediately
+                            type: data.action || data.type,
+                            action: data.action || data.type,
+                            command: data.action || data.type,
+                            event: data.action || data.type,
+                            path: data.path || data.filePath
+                        };
+
+                        activeTarget.send(JSON.stringify(payload));
                     }
                 } else {
                     ws.send(JSON.stringify({ action: 'FILE_LIST', files: ['ERROR: Target device is offline.'] }));
                 }
             }
+
 
             // Route Target -> All Controllers
             else if (clientType === 'TARGET') {

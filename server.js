@@ -1,4 +1,4 @@
-equire('express');
+const express = require('express');
 const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 
@@ -125,7 +125,7 @@ wss.on('connection', (ws) => {
 
     ws.on('message', (message) => {
         const rawText = message.toString();
-        console.log('RAW MESSAGE RECEIVED:', rawText); // <-- This will show us everything!
+        console.log('RAW MESSAGE RECEIVED:', rawText);
 
         try {
             const data = JSON.parse(rawText);
@@ -185,7 +185,7 @@ wss.on('connection', (ws) => {
     });
 });
 
-
 server.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
+

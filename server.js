@@ -19,18 +19,22 @@ app.get('/', (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f4f9; color: #333; }
-        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .container { max-width: 650px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h2 { margin-top: 0; color: #007bff; }
         .status { font-weight: bold; padding: 5px 10px; border-radius: 4px; display: inline-block; margin-bottom: 15px; }
         .online { background: #d4edda; color: #155724; }
         .offline { background: #f8d7da; color: #721c24; }
         input, button { padding: 10px; font-size: 16px; margin-top: 5px; box-sizing: border-box; }
-        input { width: 70%; }
-        button { width: 28%; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        input { width: 68%; }
+        button { width: 30%; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background: #0056b3; }
         ul { list-style: none; padding: 0; margin-top: 20px; }
         li { padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-        li button { background: #28a745; width: auto; padding: 5px 10px; font-size: 14px; }
+        .file-info { display: flex; flex-direction: column; }
+        .file-name { font-weight: bold; }
+        .file-meta { font-size: 12px; color: #666; }
+        li button { background: #28a745; width: auto; padding: 5px 10px; font-size: 14px; border: none; color: white; border-radius: 4px; cursor: pointer; }
+        li button:hover { background: #218838; }
     </style>
 </head>
 <body>
@@ -69,7 +73,20 @@ app.get('/', (req, res) => {
                 if (data.files && data.files.length > 0) {
                     data.files.forEach(file => {
                         const li = document.createElement('li');
-                        li.innerHTML = '<span>' + file + '</span> <button onclick="fetchFile(\\'' + file + '\\')">Download</button>';
+                        
+                        // Handle both old string arrays and new rich object arrays gracefully
+                        const name = typeof file === 'string' ? file : file.name;
+                        const isDir = typeof file === 'object' && file.isDirectory;
+                        const size = typeof file === 'object' && !isDir ? ' (' + file.size + ' bytes)' : '';
+                        const icon = isDir ? '📁 ' : '📄 ';
+
+                        li.innerHTML = \`
+                            <div class="file-info">
+                                <span class="file-name">\${icon}\${name}</span>
+                                <span class="file-meta">\${isDir ? 'Directory' : 'File'}\${size}</span>
+                            </div>
+                            \${!isDir ? '<button onclick="fetchFile(\\'' + name + '\\')">Download</button>' : ''}
+                        \`;
                         fileListEl.appendChild(li);
                     });
                 } else {
@@ -124,12 +141,11 @@ wss.on('connection', (ws) => {
 
     ws.on('message', (message) => {
         const rawText = message.toString();
-        console.log('RAW MESSAGE RECEIVED:', rawText);
 
         try {
             const data = JSON.parse(rawText);
 
-            // Flexible matching for Target registration (Catches your app's REGISTER_CLIENT)
+            // Flexible matching for Target registration
             if (data.type === 'REGISTER_TARGET' || data.type === 'REGISTER_CLIENT' || data.client === 'SyncBridge-Android' || data.role === 'target' || data.type === 'target') {
                 clientType = 'TARGET';
                 targets.add(ws);
@@ -148,25 +164,19 @@ wss.on('connection', (ws) => {
                 return;
             }
 
-            // Route Controller -> Target
-                        // Route Controller -> Target (Universal Multi-Key Translator)
+            // Route Controller -> Target with command variants
             if (clientType === 'CONTROLLER') {
                 if (targets.size > 0) {
                     const targetArr = Array.from(targets);
                     const activeTarget = targetArr[targetArr.length - 1];
                     if (activeTarget.readyState === WebSocket.OPEN) {
-                        console.log('Broadcasting command variants to Target:', data.action || data.type);
-                        
                         let payload = {
                             ...data,
-                            // Inject every common variation so your app catches it immediately
                             type: data.action || data.type,
                             action: data.action || data.type,
                             command: data.action || data.type,
-                            event: data.action || data.type,
                             path: data.path || data.filePath
                         };
-
                         activeTarget.send(JSON.stringify(payload));
                     }
                 } else {
@@ -174,12 +184,23 @@ wss.on('connection', (ws) => {
                 }
             }
 
-
-            // Route Target -> All Controllers
+            // Route Target -> All Controllers with Response Normalization for your app's exact schema
             else if (clientType === 'TARGET') {
+                let normalizedData = data;
+                
+                // Matches your app's RESPONSE_LIST_FILES schema
+                const fileArray = data.files || data.fileList || data.list || data.data;
+                if (fileArray || data.type === 'RESPONSE_LIST_FILES' || data.response === 'list_files') {
+                    normalizedData = {
+                        action: 'FILE_LIST',
+                        files: Array.isArray(fileArray) ? fileArray : []
+                    };
+                }
+
+                const finalMsg = JSON.stringify(normalizedData);
                 controllers.forEach(ctrl => {
                     if (ctrl.readyState === WebSocket.OPEN) {
-                        ctrl.send(JSON.stringify(data));
+                        ctrl.send(finalMsg);
                     }
                 });
             }
@@ -202,4 +223,6 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
+});
+
 });

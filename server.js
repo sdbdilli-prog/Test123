@@ -5,7 +5,6 @@ const { WebSocketServer, WebSocket } = require('ws');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Store connected clients cleanly by type/ID
 let targets = new Set();
 let controllers = new Set();
 
@@ -130,15 +129,17 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(rawText);
 
-            if (data.type === 'REGISTER_TARGET' || data.role === 'target') {
+            // Flexible matching for Target registration (Catches your app's REGISTER_CLIENT)
+            if (data.type === 'REGISTER_TARGET' || data.type === 'REGISTER_CLIENT' || data.client === 'SyncBridge-Android' || data.role === 'target' || data.type === 'target') {
                 clientType = 'TARGET';
                 targets.add(ws);
-                console.log('Target Device registered successfully. Total targets:', targets.size);
+                console.log('Target Device registered successfully! Total targets:', targets.size);
                 broadcastStatus();
                 ws.send(JSON.stringify({ status: 'SUCCESS', role: 'TARGET' }));
                 return;
             }
 
+            // Controller registration
             if (data.type === 'REGISTER_CONTROLLER' || data.role === 'controller') {
                 clientType = 'CONTROLLER';
                 controllers.add(ws);
@@ -188,4 +189,3 @@ wss.on('connection', (ws) => {
 server.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
-

